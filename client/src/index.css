@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   THE MATCH MIRROR (v1.0 Desktop) — WORKSTATION STYLES
+   ========================================================================== */
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #05080b;
+  color: #c7d5e0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background-image: 
+    linear-gradient(to right, rgba(23, 36, 47, 0.4) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(23, 36, 47, 0.4) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Custom dark scrollbar matching desktop IDE */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #080d11;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1c2b36;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2b3e4d;
+}
+
+/* Monospace font utility for telemetry and data readouts */
+.font-mono-tech {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Roboto Mono', Consolas, monospace;
+}
+
+/* Pulsing red REC indicator */
+@keyframes pulse-rec {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.9); }
+}
+
+.animate-pulse-rec {
+  animation: pulse-rec 1.4s ease-in-out infinite;
+}
+
+/* Subtle CRT/Viewfinder Scanlines */
+.scanlines {
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%, 
+    rgba(0, 0, 0, 0.25) 50%
+  );
+  background-size: 100% 4px;
+}
+
+/* Blinking terminal cursor */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
