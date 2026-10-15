@@ -19,6 +19,10 @@ export const DesktopCameraView = () => {
   const [cameraError, setCameraError] = useState(null);
   const [useTestTarget, setUseTestTarget] = useState(false);
 
+  // Audio Voice-Over state for Urdu Advice
+  const [activeVoiceIdx, setActiveVoiceIdx] = useState(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
   // Interactive Mirror Simulation Mode: 'live' | 'wrong_shade' | 'unblended' | 'optimal'
   const [mirrorMode, setMirrorMode] = useState('live');
 
@@ -100,6 +104,32 @@ export const DesktopCameraView = () => {
     };
   }, [startCamera]);
 
+  // Pre-warm SpeechSynthesis voices for immediate Urdu voiceover playback
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      const loadVoices = () => {
+        window.speechSynthesis.getVoices();
+      };
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+
+    return () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  // Cancel any active speech when switching simulation modes
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      setActiveVoiceIdx(null);
+    }
+  }, [mirrorMode]);
+
   // Frame processing loop for real-time telemetry (10 Hz rate)
   useEffect(() => {
     let lastTime = 0;
@@ -164,7 +194,67 @@ export const DesktopCameraView = () => {
     }, 30);
   };
 
-  // Real-time smart mirror advice & warnings generator
+  // Natural Urdu Text-to-Speech handler
+  const speakAdvice = useCallback((item, index) => {
+    if (!('speechSynthesis' in window)) {
+      alert("Audio speech is not supported in this browser.");
+      return;
+    }
+
+    // Toggle stop if already playing this item
+    if (isSpeaking && activeVoiceIdx === index) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      setActiveVoiceIdx(null);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const textToSpeak = item.urduVoice || item.simpleUrdu;
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+
+    // Locate best matching Urdu or Hindi voice (Hindi phonetics pronounce Urdu vocabulary identically)
+    const voices = window.speechSynthesis.getVoices();
+    const urduVoice = voices.find((v) => v.lang.startsWith('ur') || v.lang === 'ur-PK' || v.lang === 'ur-IN');
+    const hindiVoice = voices.find((v) => v.lang.startsWith('hi') || v.lang === 'hi-IN');
+    const subcontVoice = voices.find((v) => v.lang.includes('IN') || v.lang.includes('PK'));
+
+    if (urduVoice) {
+      utterance.voice = urduVoice;
+      utterance.lang = urduVoice.lang;
+    } else if (hindiVoice) {
+      utterance.voice = hindiVoice;
+      utterance.lang = hindiVoice.lang;
+    } else if (subcontVoice) {
+      utterance.voice = subcontVoice;
+      utterance.lang = subcontVoice.lang;
+    } else if (voices.length > 0) {
+      utterance.voice = voices[0];
+    }
+
+    utterance.rate = 0.88; // Gentle, natural pacing for easy understanding
+    utterance.pitch = 1.0;
+
+    utterance.onstart = () => {
+      setIsSpeaking(true);
+      setActiveVoiceIdx(index);
+    };
+
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      setActiveVoiceIdx(null);
+    };
+
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      setActiveVoiceIdx(null);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  }, [isSpeaking, activeVoiceIdx]);
+
+  // Real-time smart mirror advice & warnings generator (user friendly + Urdu voice-over enabled)
   const getMirrorAdviceLogs = () => {
     const monk = currentSampleRef.current?.monkScale || 5;
     const undertone = currentSampleRef.current?.undertone || 'Warm Olive';
@@ -173,27 +263,48 @@ export const DesktopCameraView = () => {
     if (mirrorMode === 'wrong_shade') {
       return [
         {
+          id: 'wrong_shade_1',
           type: 'ERROR',
-          title: 'SHADE MISMATCH ALERT (CHEEK ZONE)',
-          text: 'Detected applied shade: Cool Porcelain 115 (ΔE 4.8 contrast). Extreme mismatch!',
+          badge: 'خطرہ • MISMATCH',
+          badgeColor: 'text-[#ef4444] bg-[#ef4444]/15 border-[#ef4444]/40',
+          icon: '❌',
+          urduTitle: 'فاؤنڈیشن شیڈ بہت زیادہ گورا ہے',
+          engTitle: 'Foundation Too Fair (ΔE 4.8)',
+          simpleUrdu: 'یہ فاؤنڈیشن آپ کی جلد سے بہت زیادہ گوری ہے۔ لگانے کے بعد چہرہ سرمئی، کالا اور چونا نظر آئے گا۔',
+          romanUrdu: 'Yeh shade aapki skin se bohot zyada gora hai, thori der baad face ashy ya gray lagne lagega.',
+          urduVoice: 'خبردار! یہ فاؤنڈیشن شیڈ آپ کی جلد سے بہت زیادہ گورا ہے۔ یہ لگانے کے بعد چہرہ سرمئی یا چونا نظر آئے گا۔ براہ کرم قدرتی شیڈ استعمال کریں۔',
           color: 'text-[#ef4444]',
-          border: 'border-[#ef4444]/40',
+          border: 'border-[#ef4444]/50',
           bg: 'bg-[#ef4444]/10',
         },
         {
+          id: 'wrong_shade_2',
           type: 'WARNING',
-          title: 'UNDERTONE CLASH: ASHY EFFECT',
-          text: 'This formula contains cool pink pigments which turn gray/ashy against your Warm Olive melanin.',
+          badge: 'انتباہ • UNDERTONE CLASH',
+          badgeColor: 'text-[#f59e0b] bg-[#f59e0b]/15 border-[#f59e0b]/40',
+          icon: '⚠️',
+          urduTitle: 'پنک رنگت کا غلط ٹون',
+          engTitle: 'Ashy Pink Undertone Conflict',
+          simpleUrdu: 'اس میں گلابی پگمنٹس ہیں جو آپ کی گندمی رنگت کو بے رونق اور بجھا بجھا دکھائیں گے۔',
+          romanUrdu: 'Is mein cool pink tones hain jo aapki wheatish skin ko dull aur lifeless bana dain gay.',
+          urduVoice: 'اس فاؤنڈیشن میں گلابی رنگ زیادہ ہے جو آپ کی گندمی رنگت کے ساتھ مل کر چہرے کو بے رونق بنا دے گا۔',
           color: 'text-[#f59e0b]',
-          border: 'border-[#f59e0b]/40',
+          border: 'border-[#f59e0b]/50',
           bg: 'bg-[#f59e0b]/10',
         },
         {
+          id: 'wrong_shade_3',
           type: 'RECOMMENDATION',
-          title: 'MORE SUITABLE FOR YOUR SKIN TONE',
-          text: 'Switch to Maybelline Fit Me 220 Natural Beige or L\'Oréal W5 Golden Sand (ΔE 1.12, 93.3% match).',
+          badge: 'مشورہ • BEST ALTERNATIVE',
+          badgeColor: 'text-[#00f0ff] bg-[#00f0ff]/15 border-[#00f0ff]/40',
+          icon: '💄',
+          urduTitle: 'آپ کے لیے صحیح شیڈز',
+          engTitle: 'Recommended Matches',
+          simpleUrdu: 'Maybelline 220 Natural Beige یا Rivaj RJ-04 خریدیں، یہ آپ کی جلد پر 93% پرفیکٹ ملیں گی۔',
+          romanUrdu: 'Maybelline Fit Me 220 ya Rivaj RJ-04 Honey aapki skin ke liye 93% ideal match hain.',
+          urduVoice: 'آپ کے لیے میبلین فٹ می دو سو بیس نیچرل بیج یا رواج ہنی سب سے بہترین ہے، یہ ترانوے فیصد میچ ہے۔',
           color: 'text-[#00f0ff]',
-          border: 'border-[#00f0ff]/40',
+          border: 'border-[#00f0ff]/50',
           bg: 'bg-[#00f0ff]/10',
         },
       ];
@@ -202,28 +313,34 @@ export const DesktopCameraView = () => {
     if (mirrorMode === 'unblended') {
       return [
         {
+          id: 'unblended_1',
           type: 'WARNING',
-          title: 'DEMARCATION LINE ON JAWLINE',
-          text: 'High color variance (ΔE 3.8) detected along left lower jawline boundary.',
-          color: 'text-[#f59e0b]',
-          border: 'border-[#f59e0b]/40',
-          bg: 'bg-[#f59e0b]/10',
+          badge: 'دھیان دیں • JAWLINE LINE',
+          badgeColor: 'text-[#ef4444] bg-[#ef4444]/15 border-[#ef4444]/40',
+          icon: '⚠️',
+          urduTitle: 'گردن پر الگ لائن نظر آ رہی ہے',
+          engTitle: 'Demarcation Line Detected (ΔE 3.8)',
+          simpleUrdu: 'چہرے اور گردن کے درمیان فاؤنڈیشن کی الگ موٹی لائن بن گئی ہے۔ میک اپ الگ سے تھپا ہوا لگ رہا ہے۔',
+          romanUrdu: 'Face aur gardan ke darmiyan makeup ki alag line ban gayi hai, jissay chehra alag aur gardan alag lag rahi hai.',
+          urduVoice: 'دھیان دیں! چہرے اور گردن کے درمیان فاؤنڈیشن کی الگ لائن نظر آ رہی ہے۔ میک اپ تھپا ہوا لگ رہا ہے۔',
+          color: 'text-[#ef4444]',
+          border: 'border-[#ef4444]/50',
+          bg: 'bg-[#ef4444]/10',
         },
         {
+          id: 'unblended_2',
           type: 'GUIDANCE',
-          title: 'BLENDING TECHNIQUE ADVICE',
-          text: 'Feather and buff foundation downward past the jawline towards the neck using a damp sponge.',
+          badge: 'آسان طریقہ • BLENDING TIP',
+          badgeColor: 'text-[#00f0ff] bg-[#00f0ff]/15 border-[#00f0ff]/40',
+          icon: '💡',
+          urduTitle: 'سپنج سے نیچے کی طرف پھیلائیں',
+          engTitle: 'Feather Downward to Neck',
+          simpleUrdu: 'گیلے بیوٹی سپنج سے فاؤنڈیشن کو جبڑے سے نیچے گردن کی طرف ٹیپ کر کے مکس کریں تاکہ لائن غائب ہو۔',
+          romanUrdu: 'Geelay beauty sponge se makeup ko jabray se gardan ki taraf achi tarah blend karein.',
+          urduVoice: 'گیلے بیوٹی سپنج کی مدد سے فاؤنڈیشن کو نیچے گردن کی طرف اچھی طرح پھیلائیں تاکہ لائن ختم ہو جائے۔',
           color: 'text-[#00f0ff]',
-          border: 'border-[#00f0ff]/40',
+          border: 'border-[#00f0ff]/50',
           bg: 'bg-[#00f0ff]/10',
-        },
-        {
-          type: 'NOTICE',
-          title: 'MASK EFFECT PREVENTION',
-          text: 'Demarcation will be visibly pronounced under direct daylight or camera flash.',
-          color: 'text-[#8699a6]',
-          border: 'border-[#172530]',
-          bg: 'bg-[#0e161c]',
         },
       ];
     }
@@ -231,72 +348,107 @@ export const DesktopCameraView = () => {
     if (mirrorMode === 'optimal') {
       return [
         {
+          id: 'optimal_1',
           type: 'SUCCESS',
-          title: 'OPTIMAL SHADE MATCH CONFIRMED',
-          text: 'Maybelline Fit Me 220 blends with ΔE 1.12. Zero demarcation line detected.',
+          badge: 'شاباش • PERFECT MATCH',
+          badgeColor: 'text-[#10b981] bg-[#10b981]/15 border-[#10b981]/40',
+          icon: '✅',
+          urduTitle: 'بالکل پرفیکٹ میچ ہے!',
+          engTitle: 'Optimal Match Confirmed (ΔE 1.12)',
+          simpleUrdu: 'زبردست! یہ فاؤنڈیشن آپ کے چہرے اور گردن کی اصل رنگت میں بالکل جذب ہو کر چھپ گئی ہے۔ کوئی لائن نہیں!',
+          romanUrdu: 'Zabardast! Yeh foundation aapki natural skin mein bilkul ghul mil gayi hai, koi line nahi hai.',
+          urduVoice: 'مبارک ہو! یہ فاؤنڈیشن آپ کے چہرے اور گردن کی قدرتی رنگت کے ساتھ بالکل پرفیکٹ مل گئی ہے۔',
           color: 'text-[#10b981]',
-          border: 'border-[#10b981]/40',
+          border: 'border-[#10b981]/50',
           bg: 'bg-[#10b981]/10',
         },
         {
+          id: 'optimal_2',
           type: 'MATCH',
-          title: 'HARMONIC COMPLEXION COHESION',
-          text: 'Perfect undertone cohesion across forehead, cheeks, and neck baseline.',
+          badge: 'نیچرل لک • NATURAL FINISH',
+          badgeColor: 'text-[#00f0ff] bg-[#00f0ff]/15 border-[#00f0ff]/40',
+          icon: '✨',
+          urduTitle: 'قدرتی نکھار اور چمک',
+          engTitle: 'Natural Complexion Harmony',
+          simpleUrdu: 'ماتھے، گالوں اور گردن کا رنگ ایک جیسا لگ رہا ہے، میک اپ قدرتی اور بے داغ دکھے گا۔',
+          romanUrdu: 'Mathey, gaalon aur gardan ka color aik jaisa hai. Makeup natural aur seamless hai.',
+          urduVoice: 'ماتھے، گالوں اور گردن کا رنگ بالکل یکساں ہے۔ میک اپ قدرتی اور بے داغ لگ رہا ہے۔',
           color: 'text-[#00f0ff]',
-          border: 'border-[#00f0ff]/40',
+          border: 'border-[#00f0ff]/50',
           bg: 'bg-[#00f0ff]/10',
         },
       ];
     }
 
-    // Default Live mode from active video
+    // Default Live mode from active video: 100% Pure Makeup, Shade & Blending Guidance
     const logs = [];
 
-    if (isDark) {
-      logs.push({
-        type: 'WARNING',
-        title: 'LOW AMBIENT LIGHTING DETECTED',
-        text: `Illuminance is ${telemetry.lux} Lux (${telemetry.exposureEV} EV). Face toward a window or daylight LED to avoid shade skew!`,
-        color: 'text-[#f59e0b]',
-        border: 'border-[#f59e0b]/40',
-        bg: 'bg-[#f59e0b]/10',
-      });
-    } else {
-      logs.push({
-        type: 'STATUS',
-        title: 'HIGH-CRI LIGHTING OPTIMAL',
-        text: `${telemetry.lux} Lux • Color rendering index CRI 96 suitable for spectral analysis.`,
-        color: 'text-[#10b981]',
-        border: 'border-[#10b981]/40',
-        bg: 'bg-[#10b981]/10',
-      });
-    }
-
+    // 1. [WARNING]: Makeup Shade Match Warning (Preventing Ashy / Overly Fair Base)
     logs.push({
+      id: 'live_shade_alert',
+      type: 'WARNING',
+      badge: 'میک اپ وارننگ • SHADE CHECK',
+      badgeColor: 'text-[#f59e0b] bg-[#f59e0b]/15 border-[#f59e0b]/40',
+      icon: '⚠️',
+      urduTitle: 'فاؤنڈیشن کا شیڈ بہت زیادہ گورا نہ چنیں',
+      engTitle: 'Avoid Overly Fair / Chalky Base',
+      simpleUrdu: 'اپنی جلد سے زیادہ سفید یا گلابی فاؤنڈیشن مت لگائیں۔ یہ کچھ دیر بعد کالی (آکسیڈائز) اور سرمئی ہو جاتی ہے۔',
+      romanUrdu: 'Apni skin se zyada safed ya pink base na lagayein, yeh baad mein gray ya ashy dikhai deti hai.',
+      urduVoice: 'خبردار! اپنی جلد سے زیادہ گورا یا گلابی فاؤنڈیشن شیڈ مت لگائیں۔ یہ کچھ دیر بعد چہرے کو کالا اور سرمئی بنا دیتا ہے۔ ہمیشہ قدرتی شیڈ لگائیں۔',
+      color: 'text-[#f59e0b]',
+      border: 'border-[#f59e0b]/50',
+      bg: 'bg-[#f59e0b]/10',
+    });
+
+    // 2. [SKIN_PROFILE]: Live Complexion & Undertone for Makeup Base
+    logs.push({
+      id: 'live_skin_profile',
       type: 'SKIN_PROFILE',
-      title: 'LIVE COMPLEXION DIAGNOSIS',
-      text: `Detected: Medium Wheatish (MST ${monk}) with ${undertone} Undertone.`,
+      badge: 'آپ کی رنگت • COMPLEXION PROFILE',
+      badgeColor: 'text-[#00f0ff] bg-[#00f0ff]/15 border-[#00f0ff]/40',
+      icon: '👤',
+      urduTitle: 'آپ کی اصل جلد کی رنگت اور انڈرٹون',
+      engTitle: `Detected: Medium Wheatish (MST ${monk}) with Warm Undertone`,
+      simpleUrdu: `آپ کی جلد گندمی (میڈیم) ہے اور وارم انڈرٹون ہے۔ اس رنگت پر یلو اور گولڈن بیس میک اپ سب سے قدرتی اور خوبصورت لگتا ہے۔`,
+      romanUrdu: `Aapki skin gandumee (medium wheatish) hai. Yellow aur golden base makeup aap par sab se pyara lagega.`,
+      urduVoice: `آپ کی رنگت گندمی ہے اور وارم انڈرٹون ہے۔ آپ کے چہرے پر یلو اور گولڈن بیس فاؤنڈیشن سب سے زیادہ نیچرل لگے گی۔`,
       color: 'text-[#00f0ff]',
-      border: 'border-[#00f0ff]/40',
+      border: 'border-[#00f0ff]/50',
       bg: 'bg-[#00f0ff]/10',
     });
 
+    // 3. [SUITABILITY]: Foundation Recommendation & Dark Circle Color Corrector
     logs.push({
+      id: 'live_suitability',
       type: 'SUITABILITY',
-      title: 'MOST SUITABLE FOUNDATION FORMULAS',
-      text: 'Warm Golden / Olive bases (Maybelline 220, Rivaj RJ-04) cancel redness and prevent grayish ashy cast.',
+      badge: 'بہترین شیڈز • FOUNDATION MATCH',
+      badgeColor: 'text-[#10b981] bg-[#10b981]/15 border-[#10b981]/40',
+      icon: '💄',
+      urduTitle: 'آپ کے چہرے کے لیے پرفیکٹ فاؤنڈیشنز',
+      engTitle: 'Maybelline 220 / Rivaj RJ-04 Honey',
+      simpleUrdu: 'Maybelline Fit Me 220 یا Rivaj RJ-04 Honey لگائیں۔ آنکھوں کے نیچے ہلکے سیاہ حلقوں پر پہلے اورینج کریکٹر لگانا مت بھولیں۔',
+      romanUrdu: 'Maybelline 220 ya Rivaj RJ-04 aapki skin ke liye ideal hain. Dark circles par pehle orange corrector lagayein.',
+      urduVoice: 'آپ کے لیے میبلین فٹ می دو سو بیس یا رواج ہنی سب سے بہترین ہے۔ ہلکے سیاہ حلقوں کے لیے اورینج کریکٹر استعمال کریں۔',
       color: 'text-[#10b981]',
-      border: 'border-[#10b981]/40',
+      border: 'border-[#10b981]/50',
       bg: 'bg-[#10b981]/10',
     });
 
+    // 4. [CLIMATE_ADVICE]: Anti-Oxidation, Sweat-Proof & Powder Setting Advice
     logs.push({
+      id: 'live_climate',
       type: 'CLIMATE_ADVICE',
-      title: 'PAKISTANI HUMIDITY / HEAT NOTICE',
-      text: 'Set T-zone with loose translucent powder within 2 minutes of blending to prevent oxidation darkening.',
-      color: 'text-[#8699a6]',
-      border: 'border-[#172530]',
-      bg: 'bg-[#0e161c]',
+      badge: 'میک اپ دیرپا رکھیں • SETTING TIP',
+      badgeColor: 'text-[#a855f7] bg-[#a855f7]/15 border-[#a855f7]/40',
+      icon: '🖌️',
+      urduTitle: 'پسینے اور چکنائی سے میک اپ خراب ہونے سے بچائیں',
+      engTitle: 'Anti-Crease & Translucent Powder Lock',
+      simpleUrdu: 'فاؤنڈیشن کے فوراً بعد گیلے بیوٹی سپنج سے ٹیپ کریں اور ماتھے، ناک اور آنکھوں کے نیچے لوز پاؤڈر سے لاک کریں تاکہ بیس نہ پھٹے۔',
+      romanUrdu: 'Foundation ke baad geelay sponge se tap karein aur loose powder se set karein taake makeup sweat se na phatay.',
+      urduVoice: 'فاؤنڈیشن لگانے کے بعد گیلے بیوٹی سپنج سے اچھی طرح ٹیپ کریں اور ہلکے لوز پاؤڈر سے سیٹ کریں تاکہ میک اپ دن بھر تازہ رہے۔',
+      color: 'text-[#a855f7]',
+      border: 'border-[#a855f7]/50',
+      bg: 'bg-[#a855f7]/10',
     });
 
     return logs;
@@ -464,12 +616,12 @@ export const DesktopCameraView = () => {
                   </div>
                 )}
 
-                {mirrorMode === 'live' && telemetry.lux < 250 && (
-                  <div className="absolute top-[20%] pointer-events-auto">
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-[#f59e0b] bg-[#f59e0b]/25 backdrop-blur-md shadow-[0_0_10px_rgba(245,158,11,0.4)]">
-                      <span className="text-[#f59e0b] font-mono text-[10px] font-bold">▲</span>
-                      <span className="text-[#f59e0b] font-mono text-[10px] font-bold tracking-wider">
-                        LOW LIGHTING ({telemetry.lux} LUX) • FACE WINDOW OR LAMP
+                {mirrorMode === 'live' && (
+                  <div className="absolute top-[18%] pointer-events-auto">
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-[#00f0ff]/40 bg-[#00f0ff]/15 backdrop-blur-md shadow-[0_0_12px_rgba(0,240,255,0.25)]">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#00f0ff] animate-ping"></span>
+                      <span className="text-[#00f0ff] font-mono text-[10px] font-bold tracking-wider">
+                        SMART MAKEUP MIRROR • LIVE COMPLEXION AUDIT
                       </span>
                     </div>
                   </div>
@@ -575,9 +727,13 @@ export const DesktopCameraView = () => {
               <div className="flex items-center justify-between text-xs font-mono select-none mb-2">
                 <div className="flex items-center gap-1.5 text-[#00f0ff]">
                   <span className="w-2 h-2 rounded-full bg-[#00f0ff] animate-ping"></span>
-                  <span className="font-bold tracking-wider">SMART MIRROR REAL-TIME ADVICE</span>
+                  <span className="font-bold tracking-wider">SMART MIRROR ADVICE</span>
+                  <span className="text-white text-[11px] font-sans">/ سمارٹ مشورہ</span>
                 </div>
-                <span className="text-[10px] text-[#556c7b]">AI COMPLEXION AUDIT</span>
+                <div className="flex items-center gap-1.5 text-[10px] text-[#00f0ff] bg-[#00f0ff]/10 border border-[#00f0ff]/30 px-2 py-0.5 rounded">
+                  <span>🔊</span>
+                  <span className="font-sans font-medium">کلک کر کے سنیں</span>
+                </div>
               </div>
 
               {/* Interactive Simulation / Test Filter Buttons */}
@@ -585,79 +741,135 @@ export const DesktopCameraView = () => {
                 <button
                   type="button"
                   onClick={() => setMirrorMode('live')}
-                  className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                  className={`px-2 py-1 rounded border transition-colors cursor-pointer flex items-center gap-1 ${
                     mirrorMode === 'live'
-                      ? 'bg-[#00f0ff]/20 border-[#00f0ff] text-[#00f0ff] font-bold'
+                      ? 'bg-[#00f0ff]/20 border-[#00f0ff] text-[#00f0ff] font-bold shadow-[0_0_8px_rgba(0,240,255,0.3)]'
                       : 'border-[#172530] text-[#8699a6] hover:bg-[#141f27]'
                   }`}
                 >
-                  ● Live Camera
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#00f0ff]"></span>
+                  <span>لائیو کیمرہ (Live)</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setMirrorMode('wrong_shade')}
-                  className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                  className={`px-2 py-1 rounded border transition-colors cursor-pointer flex items-center gap-1 ${
                     mirrorMode === 'wrong_shade'
-                      ? 'bg-[#ef4444]/20 border-[#ef4444] text-[#ef4444] font-bold'
+                      ? 'bg-[#ef4444]/20 border-[#ef4444] text-[#ef4444] font-bold shadow-[0_0_8px_rgba(239,68,68,0.3)]'
                       : 'border-[#172530] text-[#8699a6] hover:bg-[#141f27]'
                   }`}
                 >
-                  ⚠️ Test Wrong Shade
+                  <span>❌</span>
+                  <span>غلط شیڈ (Wrong Shade)</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setMirrorMode('unblended')}
-                  className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                  className={`px-2 py-1 rounded border transition-colors cursor-pointer flex items-center gap-1 ${
                     mirrorMode === 'unblended'
-                      ? 'bg-[#f59e0b]/20 border-[#f59e0b] text-[#f59e0b] font-bold'
+                      ? 'bg-[#f59e0b]/20 border-[#f59e0b] text-[#f59e0b] font-bold shadow-[0_0_8px_rgba(245,158,11,0.3)]'
                       : 'border-[#172530] text-[#8699a6] hover:bg-[#141f27]'
                   }`}
                 >
-                  ⚠️ Test Jawline Flaw
+                  <span>⚠️</span>
+                  <span>گردن پر لائن (Jawline Flaw)</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setMirrorMode('optimal')}
-                  className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                  className={`px-2 py-1 rounded border transition-colors cursor-pointer flex items-center gap-1 ${
                     mirrorMode === 'optimal'
-                      ? 'bg-[#10b981]/20 border-[#10b981] text-[#10b981] font-bold'
+                      ? 'bg-[#10b981]/20 border-[#10b981] text-[#10b981] font-bold shadow-[0_0_8px_rgba(16,185,129,0.3)]'
                       : 'border-[#172530] text-[#8699a6] hover:bg-[#141f27]'
                   }`}
                 >
-                  ✓ Test Ideal Match
+                  <span>✓</span>
+                  <span>پرفیکٹ میچ (Ideal Match)</span>
                 </button>
               </div>
 
               {/* Scrollable Advice & Warnings Stream */}
               <div
                 ref={logScrollRef}
-                className="space-y-1.5 max-h-48 overflow-y-auto pr-1 font-mono text-[11px]"
+                className="space-y-2 max-h-56 overflow-y-auto pr-1 font-mono text-[11px]"
               >
-                {adviceLogs.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className={`p-2 rounded border ${item.border} ${item.bg} space-y-0.5 transition-all`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-[10px] font-bold uppercase tracking-wider ${item.color}`}>
-                        [{item.type}]
-                      </span>
-                      <span className="text-white font-semibold text-[11px] truncate">
-                        {item.title}
-                      </span>
+                {adviceLogs.map((item, idx) => {
+                  const isPlaying = isSpeaking && activeVoiceIdx === idx;
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => speakAdvice(item, idx)}
+                      className={`p-2.5 rounded border transition-all cursor-pointer relative group select-none ${item.border} ${item.bg} ${
+                        isPlaying
+                          ? 'ring-2 ring-[#00f0ff] shadow-[0_0_15px_rgba(0,240,255,0.4)]'
+                          : 'hover:border-[#00f0ff]/60 hover:bg-[#0e161c]'
+                      }`}
+                    >
+                      {/* Top Row: Icon + Badges + Urdu Title + Speaker Button */}
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm shrink-0">{item.icon}</span>
+                          <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${item.badgeColor}`}>
+                            {item.badge}
+                          </span>
+                          <span className="text-white font-bold text-xs font-sans">
+                            {item.urduTitle}
+                          </span>
+                        </div>
+
+                        {/* Speaker Voice Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            speakAdvice(item, idx);
+                          }}
+                          className={`px-2 py-0.5 rounded text-[10px] font-sans font-semibold flex items-center gap-1 border transition-all cursor-pointer shrink-0 ${
+                            isPlaying
+                              ? 'bg-[#00f0ff] text-black border-[#00f0ff] shadow-[0_0_10px_#00f0ff]'
+                              : 'bg-[#172530] text-[#00f0ff] border-[#00f0ff]/40 hover:bg-[#00f0ff]/20'
+                          }`}
+                          title="Urdu Voice Mein Suniye"
+                        >
+                          {isPlaying ? (
+                            <>
+                              <span className="w-1.5 h-1.5 rounded-full bg-black animate-ping"></span>
+                              <span>رکیں (بول رہا ہے)</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>🔊</span>
+                              <span>سنیں (Urdu)</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Prominent Easy-to-understand Urdu Explanation */}
+                      <p className="text-white text-xs sm:text-[13px] font-sans leading-relaxed tracking-wide pt-0.5 text-right sm:text-left">
+                        {item.simpleUrdu}
+                      </p>
+
+                      {/* Roman Urdu subtitle for reading ease */}
+                      <div className="flex items-center justify-between pt-1 mt-1 border-t border-white/5 text-[10px] text-[#8699a6]">
+                        <span>{item.romanUrdu}</span>
+                        <span className="text-[9px] text-[#556c7b] hidden sm:inline">{item.engTitle}</span>
+                      </div>
                     </div>
-                    <p className="text-[#c7d5e0] text-[10px] leading-relaxed">
-                      {item.text}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
             {/* Smart Advice Footer Status */}
             <div className="pt-2 border-t border-[#141f27] flex items-center justify-between font-mono text-[10px] text-[#556c7b]">
-              <span>Active Undertone: {currentSampleRef.current?.undertone || 'Warm Olive'}</span>
-              <span className="text-[#00f0ff]">MST {currentSampleRef.current?.monkScale || 5}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]"></span>
+                <span className="text-[#8699a6] font-sans">آڈیو سسٹم فعال ہے (Urdu Voice Active)</span>
+              </div>
+              <span className="text-[#00f0ff]">
+                {currentSampleRef.current?.undertone || 'Warm Olive'} • MST {currentSampleRef.current?.monkScale || 5}
+              </span>
             </div>
           </div>
 
